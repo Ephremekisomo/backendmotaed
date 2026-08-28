@@ -1,8 +1,5 @@
 FROM node:24-alpine
 
-RUN addgroup -g 1001 -S nodejs && \
-    adduser -S node -u 1001
-
 WORKDIR /app
 
 COPY package.json package-lock.json ./
