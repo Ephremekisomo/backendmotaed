@@ -11,7 +11,7 @@ import { z } from 'zod'
 import crypto from 'crypto'
 
 const app = express()
-const port = Number(process.env.PORT ?? 3001)
+const port = Number(process.env.PORT ?? 10000)
 const jwtSecret = process.env.JWT_SECRET
 if (!process.env.DATABASE_URL || !jwtSecret) throw new Error('DATABASE_URL et JWT_SECRET sont obligatoires')
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false }, max: 10 })
@@ -20,6 +20,14 @@ app.use(cors({ origin: process.env.FRONTEND_URL ?? 'http://localhost:5174', cred
 app.use(express.json({ limit: '1mb' }))
 app.use(cookieParser())
 app.use('/api/auth/login', rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: true }))
+
+app.get('/', (_req, res) => {
+  res.json({
+    success: true,
+    message: 'Backend Motards API fonctionne correctement 🚀',
+    status: 'online'
+  })
+})
 
 type AuthRequest = Request & { user?: { id: string; role: string } }
 const loginSchema = z.object({ email: z.string().email(), password: z.string().min(8) })
@@ -60,4 +68,4 @@ if (fs.existsSync(clientDist)) {
 }
 
 app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => { if (error instanceof z.ZodError) return res.status(400).json({ error: 'Données invalides', details: error.flatten() }); console.error(error); res.status(500).json({ error: 'Erreur serveur' }) })
-app.listen(port, () => console.log(`MOTAED API listening on http://localhost:${port}`))
+app.listen(port, '0.0.0.0', () => console.log(`MOTAED API listening on http://localhost:${port}`))

@@ -8,7 +8,7 @@ RUN npm install && \
 
 COPY . .
 
-EXPOSE 3001
+EXPOSE 10000
 
 ENV NODE_ENV=production
 ENV PORT=3001
