@@ -93,7 +93,7 @@ returns trigger language plpgsql security invoker set search_path = public
 as $$
 begin
   insert into public.qr_codes (rider_id, unique_code, qr_url)
-  values (new.id, new.unique_code, 'https://monapplication.com/verify/' || new.unique_code);
+  values (new.id, new.unique_code, '/verify/' || new.unique_code);
   return new;
 end;
 $$;
