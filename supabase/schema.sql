@@ -141,17 +141,6 @@ using (public.is_admin()) with check (public.is_admin());
 create policy verification_logs_admin_access on public.verification_logs for all to authenticated
 using (public.is_admin()) with check (public.is_admin());
 
--- Demo data. These records are for the application demo only.
-insert into public.riders (
-  first_name, last_name, nationality, phone, driver_type, identification_number,
-  plate_number, vehicle_brand, vehicle_model, vehicle_color, activity_zone, status
-) values
-  ('Blaise', 'Kanku', 'Congolaise', '+243 810 000 001', 'motard', 'MOT-2024-0847', 'KN-5421-AB', 'Honda', 'CG 125', 'Noir', 'Ngaliema', 'actif'),
-  ('Jean-Pierre', 'Mbuyi', 'Congolaise', '+243 810 000 002', 'chauffeur_taxi', 'TAX-2024-0846', 'CD-8842-KL', 'Toyota', 'Corolla', 'Bleu', 'Gombe', 'actif'),
-  ('Grace', 'Lukusa', 'Congolaise', '+243 810 000 003', 'motard', 'MOT-2024-0845', 'KN-2201-CB', 'TVS', 'HLX 125', 'Rouge', 'Limete', 'suspendu'),
-  ('Patrick', 'Ilunga', 'Congolaise', '+243 810 000 004', 'chauffeur_taxi_bus', 'BUS-2024-0844', 'CD-1130-AA', 'Mercedes', 'Sprinter', 'Blanc', 'Kintambo', 'expire')
-on conflict (identification_number) do nothing;
-
 -- After creating an admin in Authentication > Users, create its profile:
 -- insert into public.users (id, full_name, email, role)
 -- values ('AUTH_USER_UUID', 'Amadou Mukendi', 'admin@motaed.cd', 'super_admin');
