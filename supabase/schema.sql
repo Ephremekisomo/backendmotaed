@@ -1,15 +1,44 @@
--- MOTAED / Supabase PostgreSQL schema (extended with identification sheets)
--- Execute this file in Supabase SQL Editor.
--- Admin passwords must be created with Supabase Auth, never inserted here.
+-- =========================================================
+-- STEP 1 : drop everything that might conflict (safe re-run)
+-- =========================================================
+drop function if exists public.verify_identification(text);
+drop function if exists public.verify_rider(text);
+drop function if exists public.generate_identification_number();
+drop function if exists public.create_rider_qr();
+drop function if exists public.is_admin();
+drop function if exists public.set_updated_at();
 
+drop sequence if exists public.identification_seq;
+
+drop table if exists public.identification_verification_logs cascade;
+drop table if exists public.identification_records cascade;
+drop table if exists public.drivers cascade;
+drop table if exists public.vehicles cascade;
+drop table if exists public.owners cascade;
+drop table if exists public.verification_logs cascade;
+drop table if exists public.qr_codes cascade;
+drop table if exists public.riders cascade;
+drop table if exists public.users cascade;
+
+drop type if exists public.marital_status_kind;
+drop type if exists public.gender_kind;
+drop type if exists public.id_status;
+drop type if exists public.vehicle_usage;
+drop type if exists public.vehicle_kind;
+drop type if exists public.driver_type;
+drop type if exists public.rider_status;
+drop type if exists public.user_status;
+drop type if exists public.user_role;
+
+-- =========================================================
+-- STEP 2 : MOTAED schema
+-- =========================================================
 create extension if not exists pgcrypto;
 
 create type public.user_role as enum ('super_admin', 'admin');
 create type public.user_status as enum ('actif', 'inactif');
 create type public.rider_status as enum ('actif', 'suspendu', 'expire', 'desactive');
 create type public.driver_type as enum ('motard', 'chauffeur_taxi', 'chauffeur_taxi_bus', 'autre');
-
--- New enums for identification sheets
 create type public.vehicle_kind as enum ('MOTO', 'TRICYCLE');
 create type public.vehicle_usage as enum ('TAXI_TRANSPORT_PUBLIC', 'PERSONNEL', 'AUTRE');
 create type public.id_status as enum ('ACTIF', 'SUSPENDU', 'EXPIRE', 'ARCHIVE');
@@ -77,9 +106,8 @@ create table public.verification_logs (
 );
 
 -- =========================================================
--- Identification sheets (fiches d'identification)
+-- Identification sheets
 -- =========================================================
-
 create table public.owners (
   id uuid primary key default gen_random_uuid(),
   unique_identifier text not null unique default 'OWN-' || upper(encode(gen_random_bytes(6), 'hex')),
@@ -199,10 +227,7 @@ for each row execute function public.set_updated_at();
 create trigger identification_records_set_updated_at before update on public.identification_records
 for each row execute function public.set_updated_at();
 
--- =========================================================
--- Identification number generator (CCMT-NK/YYYY/NNNNNN)
--- =========================================================
-create sequence if not exists public.identification_seq start 1 increment 1;
+create sequence public.identification_seq start 1 increment 1;
 
 create or replace function public.generate_identification_number()
 returns text language plpgsql security invoker set search_path = public
@@ -217,9 +242,6 @@ begin
 end;
 $$;
 
--- =========================================================
--- Public verification (returns safe DTO only)
--- =========================================================
 create or replace function public.verify_identification(token text)
 returns jsonb language plpgsql security definer set search_path = public
 as $$
@@ -304,7 +326,6 @@ $$;
 revoke all on function public.verify_identification(text) from public;
 grant execute on function public.verify_identification(text) to anon, authenticated;
 
--- Original rider QR remains unchanged
 create or replace function public.create_rider_qr()
 returns trigger language plpgsql security invoker set search_path = public
 as $$
@@ -339,7 +360,6 @@ $$;
 revoke all on function public.verify_rider(text) from public;
 grant execute on function public.verify_rider(text) to anon, authenticated;
 
--- Row Level Security: public users can only use the restricted verification RPC.
 alter table public.users enable row level security;
 alter table public.riders enable row level security;
 alter table public.qr_codes enable row level security;
