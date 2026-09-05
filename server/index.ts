@@ -51,7 +51,18 @@ function tokenFor(user: { id: string; role: string }) { return jwt.sign(user, jw
 function requireAuth(req: AuthRequest, res: Response, next: NextFunction) { const token = req.cookies?.motaed_session ?? req.headers.authorization?.replace('Bearer ', ''); if (!token) return res.status(401).json({ error: 'Authentification requise' }); try { req.user = jwt.verify(token, jwtSecret as string) as AuthRequest['user']; next() } catch { return res.status(401).json({ error: 'Session expirée' }) } }
 
 app.get('/api/health', async (_req, res) => { try { await pool.query('select 1'); res.json({ ok: true, database: 'connected' }) } catch { res.status(503).json({ ok: false, database: 'unavailable' }) } })
-app.post('/api/auth/login', async (req, res, next) => { try { const input = loginSchema.parse(req.body); const result = await pool.query('select p.id, p.role, p.status, a.encrypted_password as password_hash from public.users p join auth.users a on a.id = p.id where lower(p.email) = lower($1) limit 1', [input.email]); const user = result.rows[0]; if (!user || user.status !== 'actif' || !user.password_hash || !(await bcrypt.compare(input.password, user.password_hash))) return res.status(401).json({ error: 'Identifiants incorrects' }); res.cookie('motaed_session', tokenFor({ id: user.id, role: user.role }), { httpOnly: true, sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', secure: process.env.NODE_ENV === 'production', maxAge: 8 * 60 * 60 * 1000 }); res.json({ user: { id: user.id, role: user.role } }) } catch (error) { next(error) } })
+app.post('/api/auth/login', async (req, res, next) => {
+  try {
+    const input = loginSchema.parse(req.body)
+    const result = await pool.query('select p.id, p.role, p.status, a.encrypted_password as password_hash from public.users p join auth.users a on a.id = p.id where lower(p.email) = lower($1) limit 1', [input.email])
+    const user = result.rows[0]
+    if (!user || user.status !== 'actif' || !user.password_hash) return res.status(401).json({ error: 'Identifiants incorrects' })
+    const passwordMatch = await bcrypt.compare(input.password, user.password_hash).catch(() => false)
+    if (!passwordMatch) return res.status(401).json({ error: 'Identifiants incorrects' })
+    res.cookie('motaed_session', tokenFor({ id: user.id, role: user.role }), { httpOnly: true, sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', secure: process.env.NODE_ENV === 'production', maxAge: 8 * 60 * 60 * 1000 })
+    res.json({ user: { id: user.id, role: user.role } })
+  } catch (error) { next(error) }
+})
 app.post('/api/auth/logout', (_req, res) => { res.clearCookie('motaed_session', { sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', secure: process.env.NODE_ENV === 'production' }); res.status(204).send() })
 app.get('/api/auth/me', requireAuth, async (req: AuthRequest, res, next) => { try { const result = await pool.query('select id, full_name, email, role, status from public.users where id = $1 limit 1', [req.user?.id]); res.json({ user: req.user, profile: result.rows[0] ?? null }) } catch (error) { next(error) } })
 
