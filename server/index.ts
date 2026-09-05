@@ -66,13 +66,46 @@ app.post('/api/auth/login', async (req, res, next) => {
 app.post('/api/auth/logout', (_req, res) => { res.clearCookie('motaed_session', { sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', secure: process.env.NODE_ENV === 'production' }); res.status(204).send() })
 app.get('/api/auth/me', requireAuth, async (req: AuthRequest, res, next) => { try { const result = await pool.query('select id, full_name, email, role, status from public.users where id = $1 limit 1', [req.user?.id]); res.json({ user: req.user, profile: result.rows[0] ?? null }) } catch (error) { next(error) } })
 
-app.get('/api/riders', requireAuth, async (req, res, next) => { try { const search = String(req.query.search ?? ''); const status = String(req.query.status ?? ''); const result = await pool.query(`select id, first_name, last_name, driver_type, identification_number, plate_number, activity_zone, status, created_at from public.riders where ($1 = '' or concat_ws(' ', first_name, last_name, identification_number, plate_number) ilike '%' || $1 || '%') and ($2 = '' or status::text = $2) order by created_at desc limit 100`, [search, status]); res.json(result.rows) } catch (error) { next(error) } })
+app.get('/api/riders', requireAuth, async (req, res, next) => {
+  try {
+    const search = String(req.query.search ?? '')
+    const status = String(req.query.status ?? '')
+    const result = await pool.query(`select ir.id, d.first_name, d.last_name, d.photo as photo_url, v.vehicle_type, ir.identification_number, v.registration_number as plate_number, o.commune as activity_zone, ir.status, ir.created_at from public.identification_records ir join public.drivers d on d.id = ir.driver_id join public.vehicles v on v.id = ir.vehicle_id join public.owners o on o.id = ir.owner_id where ($1 = '' or concat_ws(' ', d.first_name, d.last_name, ir.identification_number, v.registration_number, o.commune) ilike '%' || $1 || '%') and ($2 = '' or ir.status::text = $2) order by ir.created_at desc limit 100`, [search, status])
+    res.json(result.rows.map((row) => ({ ...row, driver_type: row.vehicle_type === 'TRICYCLE' ? 'chauffeur_taxi_bus' : 'motard' })))
+  } catch (error) { next(error) }
+})
 app.post('/api/riders', requireAuth, async (req: AuthRequest, res, next) => { try { const input = riderSchema.parse(req.body); const driverType = { Motard: 'motard', Taxi: 'chauffeur_taxi', 'Taxi-bus': 'chauffeur_taxi_bus', Autre: 'autre' }[input.type]; const result = await pool.query(`insert into public.riders (first_name, last_name, phone, driver_type, identification_number, plate_number, activity_zone, created_by) values ($1,$2,$3,$4,$5,$6,$7,$8) returning id, unique_code, first_name, last_name, driver_type, identification_number, plate_number, activity_zone, status, created_at`, [input.firstName, input.lastName, input.phone || null, driverType, `${driverType === 'motard' ? 'MOT' : 'PRO'}-${new Date().getFullYear()}-${Date.now().toString().slice(-6)}`, input.plate || null, input.zone || null, req.user?.id]); const publicQrUrl = `${process.env.FRONTEND_URL ?? 'https://fontmotaed.vercel.app'}/verify/${result.rows[0].unique_code}`; await pool.query('update public.qr_codes set qr_url = $1 where rider_id = $2', [publicQrUrl, result.rows[0].id]); res.status(201).json({ ...result.rows[0], qr_url: publicQrUrl, plate_number: input.plate ?? null }) } catch (error) { next(error) } })
 app.get('/api/verify/:token', async (req, res, next) => { try { const idResult = await pool.query('select public.verify_identification($1) as payload', [req.params.token]); const idPayload = idResult.rows[0]?.payload; if (idPayload && idPayload.success !== false) return res.json(idPayload); const riderResult = await pool.query('select * from public.verify_rider($1)', [req.params.token]); if (!riderResult.rows[0]) return res.status(404).json({ success: false, error: 'QR Code non reconnu' }); res.json({ success: true, legacy: riderResult.rows[0] }) } catch (error) { next(error) } })
-app.get('/api/stats', requireAuth, async (_req, res, next) => { try { const riders = await pool.query("select count(*) as total, count(*) filter (where status = 'actif') as active from public.riders"); const qr = await pool.query('select count(*) as total from public.qr_codes'); const verifications = await pool.query('select count(*) as total from public.verification_logs'); res.json({ riders: Number(riders.rows[0].total), activeRiders: Number(riders.rows[0].active), qrCodes: Number(qr.rows[0].total), verifications: Number(verifications.rows[0].total) }) } catch (error) { next(error) } })
+app.get('/api/stats', requireAuth, async (_req, res, next) => {
+  try {
+    const identifications = await pool.query("select count(*) as total, count(*) filter (where status = 'ACTIF') as active from public.identification_records")
+    const qr = await pool.query('select count(*) as total from public.qr_codes')
+    const verifications = await pool.query('select count(*) as total from public.verification_logs')
+    res.json({
+      riders: Number(identifications.rows[0].total),
+      activeRiders: Number(identifications.rows[0].active),
+      qrCodes: Number(qr.rows[0].total),
+      verifications: Number(verifications.rows[0].total),
+    })
+  } catch (error) { next(error) }
+})
 app.get('/api/stats/chart', requireAuth, async (_req, res, next) => { try { const result = await pool.query(`select to_char(verified_at, 'Dy') as day, count(*) as count from public.verification_logs where verified_at >= now() - interval '7 days' group by 1 order by min(verified_at)`); const days = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim']; const map = Object.fromEntries(result.rows.map((r) => [r.day, Number(r.count)])); res.json(days.map((day) => ({ day, count: map[day] ?? 0 }))) } catch (error) { next(error) } })
-app.patch('/api/riders/:id/status', requireAuth, async (req: AuthRequest, res, next) => { try { const { status } = req.body as { status: string }; if (!['actif', 'suspendu', 'expire', 'desactive'].includes(status)) return res.status(400).json({ error: 'Statut invalide' }); const result = await pool.query('update public.riders set status = $1, updated_at = now() where id = $2 returning id, status', [status, req.params.id]); if (!result.rows[0]) return res.status(404).json({ error: 'Profil introuvable' }); res.json(result.rows[0]) } catch (error) { next(error) } })
-app.delete('/api/riders/:id', requireAuth, async (req: AuthRequest, res, next) => { try { const result = await pool.query('delete from public.riders where id = $1 returning id', [req.params.id]); if (!result.rows[0]) return res.status(404).json({ error: 'Profil introuvable' }); res.status(204).send() } catch (error) { next(error) } })
+app.patch('/api/riders/:id/status', requireAuth, async (req: AuthRequest, res, next) => {
+  try {
+    const { status } = req.body as { status: string }
+    if (!['ACTIF', 'SUSPENDU', 'EXPIRE', 'ARCHIVE'].includes(status)) return res.status(400).json({ error: 'Statut invalide' })
+    const result = await pool.query('update public.identification_records set status = $1, updated_at = now() where id = $2 returning id, status', [status, req.params.id])
+    if (!result.rows[0]) return res.status(404).json({ error: 'Profil introuvable' })
+    res.json(result.rows[0])
+  } catch (error) { next(error) }
+})
+app.delete('/api/riders/:id', requireAuth, async (req: AuthRequest, res, next) => {
+  try {
+    const result = await pool.query('delete from public.identification_records where id = $1 returning id', [req.params.id])
+    if (!result.rows[0]) return res.status(404).json({ error: 'Profil introuvable' })
+    res.status(204).send()
+  } catch (error) { next(error) }
+})
 app.post('/api/riders/:id/photo', requireAuth, async (req: AuthRequest, res, next) => { try { const { photo_url } = req.body as { photo_url?: string }; const result = await pool.query('update public.riders set photo_url = $1, updated_at = now() where id = $2 returning id, photo_url', [photo_url ?? null, req.params.id]); if (!result.rows[0]) return res.status(404).json({ error: 'Profil introuvable' }); res.json(result.rows[0]) } catch (error) { next(error) } })
 app.get('/api/users', requireAuth, async (_req, res, next) => { try { const result = await pool.query('select id, full_name, email, role, status, created_at from public.users order by created_at desc'); res.json(result.rows) } catch (error) { next(error) } })
 app.post('/api/users', requireAuth, async (req: AuthRequest, res, next) => { try { const input = z.object({ email: z.string().email(), password: z.string().min(8), fullName: z.string().min(1), role: z.enum(['super_admin', 'admin']) }).parse(req.body); const id = crypto.randomUUID(); const hash = await bcrypt.hash(input.password, 10); await pool.query('insert into auth.users (id, email, encrypted_password, aud, role) values ($1, $2, $3, $4, $5)', [id, input.email, hash, 'authenticated', 'authenticated']); await pool.query('insert into public.users (id, full_name, email, role) values ($1, $2, $3, $4)', [id, input.fullName, input.email, input.role]); res.status(201).json({ id, full_name: input.fullName, email: input.email, role: input.role }) } catch (error) { next(error) } })
