@@ -16,7 +16,21 @@ const jwtSecret = process.env.JWT_SECRET
 if (!process.env.DATABASE_URL || !jwtSecret) throw new Error('DATABASE_URL et JWT_SECRET sont obligatoires')
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false }, max: 10 })
 app.use(helmet())
-app.use(cors({ origin: process.env.FRONTEND_URL ?? 'http://localhost:5174', credentials: true }))
+const allowedOrigins = new Set([
+  (process.env.FRONTEND_URL || '').replace(/\/$/, ''),
+  'http://localhost:5174',
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'http://localhost:10000',
+])
+const corsOptions = {
+  origin(origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) {
+    if (!origin || allowedOrigins.has(origin)) return callback(null, true)
+    return callback(new Error('Not allowed by CORS'))
+  },
+  credentials: true,
+}
+app.use(cors(corsOptions))
 app.use(express.json({ limit: '1mb' }))
 app.use(cookieParser())
 app.use('/api/auth/login', rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: true }))
